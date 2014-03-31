@@ -1,0 +1,255 @@
+Icon="icons/default.png"
+Title="Domain '$name' Settings"
+---
+<script>
+function launch(form) {
+  var width    = ((screen.width*2)/3)||0;
+  var height   = ((screen.height*2)/3)||0;
+  var features = "resizeable=yes,scrollbars=yes,width=" + width + ",height=" + height;
+  var myWindow = window.open('', form.target, features);
+  myWindow.focus();
+  form.submit();
+  parent.location = parent.location;
+}
+</script>
+<?PHP
+function pgrep($process_name) {
+  $pid = exec("pgrep $process_name", $output, $retval);
+  if ($retval != 0)
+    $pid = FALSE;
+  return $pid;
+}
+function domid($domname) {
+  $domid = exec("xl domid $domname 2>&1", $output, $retval);
+  if ($retval != 0)
+    $domid = FALSE;
+  return $domid;
+}
+
+// xen domain name
+$domname = $name;
+
+// domain registration (configuration) file
+$domcfgfile = "/boot/config/domains/$domname.cfg";
+
+// handle domain-has-been-deleted case
+if (!file_exists($domcfgfile)) {
+  echo "<p class='notice'>Domain $domname has been deleted.</p>";
+  return;
+}
+
+$domcfg = parse_ini_file("$domcfgfile");
+
+// xen configuration file
+$configfile = $domcfg['configfile'];
+$domain = dirname($configfile);
+
+// xen configfile
+$configfile_text = file_get_contents($configfile);
+$default_configfile_text = @file_get_contents("$configfile-");
+if ($default_configfile_text === FALSE) {
+  $default_configfile_text = $configfile_text;
+  file_put_contents("$configfile-", $default_configfile_text);
+}
+
+// readme file
+$readmefile = "$domain/README.md";
+$readmefile_text = @file_get_contents($readmefile);
+$default_readmefile_text = @file_get_contents("$readmefile-");
+if ($default_readmefile_text === FALSE) {
+  $default_readmefile_text = $readmefile_text;
+  file_put_contents("$readmefile-", $default_readmefile_text);
+}
+
+// ensure autostart setup correctly
+if ($domcfg['autostart'] === "yes")
+  @symlink($configfile, "/etc/xen/auto/$domname");
+else
+  @unlink("/etc/xen/auto/$domname");
+
+// state
+// xen domid - if this variable is FALSE it indicates the domain does not exist (ie, shutdown)
+$domid = domid($domname);
+?>
+<? if (pgrep("xenman")): ?>
+<script>
+$(document).ready(function() {
+  $('#page-container :input').attr('disabled', true);
+});
+</script>
+<? endif; ?>
+
+Domain path:
+
+:   <?=$domain;?>
+
+    > This is the directory containing the VM configuration and image files.
+
+<? if ($domid): ?>
+<form markdown="1" method="POST" action="/plugins/webGui/exec.php" target="progressFrame">
+<input type="hidden" name="command" value="/usr/local/sbin/xenman shutdown <?=$domname;?>" />
+
+Status:
+
+:   Started
+
+:   <input type="submit" value="Shutdown" />
+
+    > Click **Shutdown** to send a shutdown signal to the VM and wait for it to shut down.
+
+</form>
+<? else: ?>
+<form markdown="1" method="POST" action="/plugins/webGui/exec.php" target="progressFrame">
+<input type="hidden" name="command" value="/usr/local/sbin/xenman start <?=$domname;?>" />
+
+Status:
+
+:   Shut down
+
+:   <input type="submit" value="Start" />
+
+    > Click **Start** to *boot* the VM.
+
+</form>
+
+<form markdown="1" method="POST" action="/plugins/webGui/exec.php" target="progressFrame">
+<input type="hidden" name="command" value="/usr/local/sbin/xenman delete <?=$domname;?>" />
+
+:   <input type="submit" value="Delete" />
+
+    > Click **Delete** to DELETE the VM.  Caution: this deletes everything!
+
+</form>
+<? endif; ?>
+
+------------------------------------------------------------------------------
+
+<form markdown="1" method="POST" action="/plugins/webGui/update_cfg.php" target="progressFrame">
+<input type="hidden" name="#file" value="<?=$domcfgfile;?>" />
+
+Domain config file:
+
+:   <?=$domcfgfile;?>
+
+    > This file holds settings specific to controlling the domain via xenMan.
+
+Auto-start VM:
+
+:   <select name="autostart" size="1">
+    <?=mk_option($domcfg['autostart'], "no", "No");?>
+    <?=mk_option($domcfg['autostart'], "yes", "Yes");?>
+    </select>
+
+    > If set to Yes, then this VM will be automatically started upon array start.
+
+:   <input type="submit" value="Apply" />
+    <input type="reset" />
+    <input type="button" value="Done" onClick="done();" />
+
+</form>
+
+------------------------------------------------------------------------------
+
+<script>
+function set_default_configfile_text(form) {
+  form.elements['text'].value = <?=json_encode($default_configfile_text);?>;
+}
+</script>
+<form markdown="1" method="POST" action="/plugins/webGui/update_file.php" target="progressFrame">
+<input type="hidden" name="file" value="<?=$configfile;?>" />
+
+Xen config file:
+
+:   <?=$configfile;?>
+
+    > This is the [Xen configuration file](http://xenbits.xen.org/docs/unstable/man/xl.cfg.5.html).
+
+:   <textarea spellcheck="false" cols="80" rows="12" maxlength="2048" name="text"><?=$configfile_text;?></textarea>
+
+<input type="button" value="Default" onclick="set_default_configfile_text(this.form);" />
+
+:   <input type="submit" value="Apply" />
+    <input type="reset" />
+    <input type="button" value="Done" onClick="done();" />
+
+    > Click the **Apply** button to commit the current edits.  Click **Reset** to
+undo any changes you make (before Saving). Click **Done** to exit this page.
+
+    > Click the **Default** button to initialize the edit box with the
+factory-default contents.  You still need to click **Save** in order to
+commit the change.
+
+</form>
+
+------------------------------------------------------------------------------
+
+<script>
+function set_default_readmefile_text(form) {
+  form.elements['text'].value = <?=json_encode($default_readmefile_text);?>;
+}
+</script>
+<form markdown="1" method="POST" action="/plugins/webGui/update_file.php" target="progressFrame">
+<input type="hidden" name="file" value="<?=$readmefile;?>" />
+
+README.md:
+
+:   <?=$readmefile;?>
+
+    > Use this file to save your notes regarding this VM domain.
+
+:   <textarea spellcheck="false" cols="80" rows="12" maxlength="2048" name="text"><?=$readmefile_text;?></textarea>
+
+<input type="button" value="Default" onclick="set_default_readmefile_text(this.form);" />
+
+:   <input type="submit" value="Apply" />
+    <input type="reset" />
+    <input type="button" value="Done" onClick="done();" />
+
+    > Click the **Apply** button to commit the current edits.  Click **Reset** to
+undo any changes you make (before Saving). Click **Done** to exit this page.
+
+    > Click the **Default** button to initialize the edit box with the
+factory-default contents.  You still need to click **Save** in order to
+commit the change.
+
+</form>
+
+------------------------------------------------------------------------------
+
+<form markdown="1" method="POST" action="/logging.htm" target="xenMan">
+<input type="hidden" name="title" value="<?=$var['NAME'];?> xenman clone" />
+<input type="hidden" name="cmd" value="/usr/local/sbin/xenman" />
+<input type="hidden" name="arg1" value="clone" />
+<input type="hidden" name="arg2" value="<?=$domname;?>" />
+
+Clone name:
+
+:   <input type="text" name="arg3" maxlength="1024" value="" /> Choose carefully, see Help
+
+    > Enter the name for the new VM - please **no spaces**. When a VM is cloned,
+we copy the *source* domain (config and image file(s)) to create the *clone* domain.  We then
+perform a simple string replace of the source VM name string in the new config file to the clone VM name.
+Please carefully review the cfg file before starting the new VM.
+
+Clone install path:
+
+:   <input type="text" name="arg4" maxlength="1024" value="<?=dirname($domain);?>" />
+
+    > Enter the directory to store the new VM domain.
+
+<? if ($domid): ?>
+
+:   <input type="button" value="Clone" disabled />
+
+    > The VM must be Shutdown in order to Clone.
+
+<? else: ?>
+
+:   <input type="button" value="Clone" onclick="launch(this.form);" />
+
+    > To clone the current VM enter the Clone name and click **Clone**.  A window will open
+that displays cloning progress.  Do not close this window until Clone has completed.
+
+<? endif; ?>
+
+</form>
